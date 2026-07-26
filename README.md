@@ -6,11 +6,11 @@
 [![Python](https://img.shields.io/badge/Python-3.12-blue)](https://python.org)
 [![XGBoost](https://img.shields.io/badge/XGBoost-3.3-orange)](https://xgboost.readthedocs.io)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.138-green)](https://fastapi.tiangolo.com)
-[![MdAPE](https://img.shields.io/badge/MdAPE-28.4%25-yellow)](##model-performance)
+[![MdAPE](https://img.shields.io/badge/MdAPE-27.6%25-yellow)](##model-performance)
 
 ## The Problem
 
-Nigeria has no open land registry. No public transaction database. No Zillow.  
+Nigeria has no open land registry. No public transaction database. No Zillow.
 When a buyer, seller, bank, or investor needs to value a Nigerian property, they hire a human surveyor, a process that takes days and costs ₦50,000–₦200,000, with no transparency on how the number was reached.
 
 This project changes that.
@@ -19,10 +19,10 @@ This project changes that.
 
 A full end-to-end machine learning pipeline that:
 
-1. Scrapes live property listings from PropertyPro.ng (1,940 listings collected)
+1. Scrapes live property listings from PropertyPro.ng (1,940 listings collected in V1; expanded to 4,143 in V2)
 2. Cleans messy, inconsistent Nigerian property data (prices in mixed formats, unstandardised locations)
-3. Engineers Nigerian-specific features, LGA-level price encoding, C of O status, BQ presence, premium area flags
-4. Trains Ridge regression (baseline) and XGBoost (main model) on 1,635 cleaned listings
+3. Engineers Nigerian-specific features — LGA-level price encoding, C of O status, BQ presence, premium area flags, LGA quality scores
+4. Trains Ridge regression (baseline) and XGBoost (main model)
 5. Deploys the model as a production REST API with confidence intervals and automatic documentation
 
 ## Live Demo
@@ -60,46 +60,128 @@ curl -X POST http://localhost:8000/predict \
 }
 ```
 
-## Model Performance
+## Model Performance (V1)
 
 | Metric | Ridge (Baseline) | XGBoost (Final) | Improvement |
-
+|---|---|---|---|
 | MAE | ₦212,938,822 | ₦195,281,484 | -8.3% |
 | RMSE | ₦417,689,904 | ₦398,752,440 | -4.5% |
 | MAPE | 59.5% | 50.9% | -8.6pp |
 | **MdAPE** | **34.1%** | **28.4%** | **-5.7pp** |
 
-> Why MdAPE?
+> **Why MdAPE?** Nigerian property data contains extreme outliers. Median absolute percentage error is more robust than mean-based metrics in right-skewed distributions.
 
-Nigerian property data contains extreme outliers. Median absolute percentage error is more robust than mean-based metrics in right-skewed distributions.
-
-## Key Findings From Testing
+## Key Findings From Testing (V1)
 
 ### 1. Premium features add a 59% price uplift
-A 4-bedroom house in Lekki with no features: **₦245M**  
-Same house, fully premium (C of O + BQ + pool + furnished + serviced + newly built): **₦391M**  
+A 4-bedroom house in Lekki with no features: **₦245M**
+Same house, fully premium (C of O + BQ + pool + furnished + serviced + newly built): **₦391M**
 **Premium uplift: +₦145.7M (+59.4%)**
 
 ### 2. Bedroom count drives value correctly
-| Bedrooms | Bathrooms | LGA | Estimated Value |
 
+| Bedrooms | Bathrooms | LGA | Estimated Value |
+|---|---|---|---|
 | 2 | 2 | Ikeja | ₦281,597,664 |
 | 5 | 5 | Ikeja | ₦831,385,984 |
 
 ### 3. Inter-city pricing correctly captured
-| Location | 4-bed basic | Market range (PropertyPro) |
 
+| Location | 4-bed basic | Market range (PropertyPro) |
+|---|---|---|
 | Lekki, Lagos | ₦245,259,456 | ₦200M–₦500M |
 | Maitama, Abuja | ₦675,186,624 | ₦500M–₦1.2B |
 
 ### 4. Identified limitation
-Intra-city Lagos location sensitivity is weak due to sample bias in mid-market LGAs. This is the primary target for v2.
+Intra-city Lagos location sensitivity is weak due to sample bias in mid-market LGAs. This is the primary target for V2 — addressed below.
 
 ## Nigerian-Specific Feature Engineering
 
 | Feature | Description | Why it matters |
-
+|---|---|---|
 | `has_cof_o` | Certificate of Occupancy | Gold-standard legal title; buyers pay premium |
 | `has_bq` | Boys' Quarters | Rental income potential adds value |
 | `lga_median_log_price` | LGA-level price encoding | Captures micro-market location value |
-| `is_premium_area` |
+| `lga_quality_score` | Manual 1-10 LGA prestige rating (V2) | Independent location signal, not dependent on scrape sample size |
+| `is_premium_area` | Ikoyi/VI/Lekki/Maitama flag | Nigeria's ultra-premium residential clusters |
+| `bath_per_bed` | Bathroom-to-bedroom ratio | Luxury signal in Nigerian market |
+
+## Technical Stack
+Data Collection → requests, BeautifulSoup4
+Data Processing → pandas, numpy
+Machine Learning → scikit-learn, XGBoost
+Explainability → SHAP
+API Deployment → FastAPI, Uvicorn
+
+## Project Structure
+├── nigeria_avm_scraper_final.py # V1 scraper
+├── scrape_midmarket_lagos_v3.py # V2 mid-market Lagos scraper
+├── lga_quality_scores.py # V2 manual LGA quality scores
+├── avm_phase2_3.py # V1 cleaning + feature engineering
+├── avm_phase2_3_v2.py # V2 cleaning + feature engineering
+├── avm_phase4_model.py # V1 model training
+├── avm_phase4_model_v2.py # V2 model training
+├── avm_deploy_api.py # V1 FastAPI REST API
+├── avm_deploy_api_v2.py # V2 FastAPI REST API
+├── nigeria_property_raw.csv # V1 raw data (1,940 listings)
+├── nigeria_property_clean_v2.csv # V2 cleaned data (3,161 listings)
+├── lga_price_summary_v2.csv # V2 LGA price statistics
+├── avm_evaluation_v2.png # V2 evaluation chart
+└── requirements.txt
+
+## How to Reproduce
+
+```bash
+git clone https://github.com/Liegeman11/nigeria-avm
+cd nigeria-avm
+pip install -r requirements.txt
+
+# V1 pipeline
+python avm_phase2_3.py
+python avm_phase4_model.py
+
+# V2 pipeline (recommended — better location accuracy)
+python scrape_midmarket_lagos_v3.py
+python avm_phase2_3_v2.py
+python avm_phase4_model_v2.py
+python avm_deploy_api_v2.py
+# Open http://localhost:8001/docs
+```
+
+---
+
+## Version 2 — Fixing the Location Weakness
+
+V1 identified a specific limitation: Lekki and Surulere returned near-identical valuations for the same property, when the real market gap is 2-3×.
+
+**What changed:**
+- Scraped 2,276 new listings from underrepresented mid-market Lagos areas (Surulere, Yaba, Gbagada, Ikorodu, Agege, Shomolu, Maryland)
+- Dataset grew from 1,635 to 3,161 listings
+- Added manual LGA quality scores (1-10 prestige rating) as an independent location signal, not dependent on scrape sample size
+
+**Note on floor area:** V2 originally planned to add floor area (sqm) as a feature. Testing showed PropertyPro listings almost never report square metreage — Nigerian agents describe properties by bedroom/bathroom count instead. This was dropped as a non-viable feature for this data source.
+
+**Results — same test, V1 vs V2:**
+
+| Property | V1 estimate | V2 estimate |
+|---|---|---|
+| 3-bed house, Lekki | ₦225,997,472 | ₦233,405,008 |
+| 3-bed house, Surulere | ₦235,146,368 (wrongly higher) | ₦170,810,960 |
+
+Lekki is now correctly valued ~37% higher than Surulere, matching real market dynamics. In V1, Surulere was priced above Lekki, which was wrong.
+
+| Metric | V1 | V2 |
+|---|---|---|
+| MdAPE | 28.4% | 27.6% |
+| MAE | ₦195,281,484 | ₦152,615,998 (-22%) |
+| RMSE | ₦398,752,440 | ₦365,641,889 |
+| Training listings | 1,635 | 3,161 |
+
+`lga_quality_score` is now among the top 6 most important features in the model.
+
+## About
+
+Built by **Taiwo Micheal Emmanuel** — Statistician, Data Analyst, and Senior Data Scientist.
+
+- 🔗 [LinkedIn](https://www.linkedin.com/in/taiwo-micheal-emmanuel-633602325/)
+- 💻 [GitHub](https://github.com/Liegeman11)
