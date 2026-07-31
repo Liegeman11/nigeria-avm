@@ -148,6 +148,7 @@ python avm_deploy_api_v2.py
 # Open http://localhost:8001/docs
 ```
 
+
 ---
 
 ## Version 2 — Fixing the Location Weakness
@@ -178,6 +179,46 @@ Lekki is now correctly valued ~37% higher than Surulere, matching real market dy
 | Training listings | 1,635 | 3,161 |
 
 `lga_quality_score` is now among the top 6 most important features in the model.
+
+
+---
+
+## Version 3 — Fixing `is_furnished`, Removing `is_serviced`, and a Real Insight on `has_cof_o`
+
+V2 left two sparse binary features (`is_furnished`, `is_serviced`) with very low training coverage (1.9% and 1.3%), producing inconsistent, direction-flipping predictions depending on property location and size.
+
+**What changed:**
+- Scraped PropertyPro's dedicated filter pages (`/is-furnished`, `/is-serviced`, `/is-new`) to directly target these sparse features rather than hoping to encounter them by chance
+- Dataset grew from 3,161 to 3,923 usable listings (after removing noise from out-of-scope states picked up by the nationwide filter scrape)
+- `is_furnished` coverage grew from 1.9% to 4.4%
+
+**Result — `is_furnished` now behaves consistently:**
+
+| LGA | Bedrooms | Unfurnished | Furnished | Diff |
+|---|---|---|---|---|
+| Agege | 5 | ₦336,800,128 | ₦368,185,088 | +₦31.4M |
+| Lekki | 5 | ₦595,722,816 | ₦666,559,744 | +₦70.8M |
+| Ikoyi | 4 | ₦980,902,208 | ₦1,115,104,896 | +₦134.2M |
+
+Furnished now consistently increases price, scaling sensibly with property value — a complete turnaround from V2, where the effect flipped sign depending on location.
+
+**`is_serviced` was removed entirely.** After two attempts to fix it with more targeted data, coverage barely moved (1.3% → 1.6%) — the `/is-serviced` filter URL doesn't reliably return genuinely serviced listings (validated at just 0-5% actual match rate). Re-testing showed the feature producing a **−₦239M swing** on a 4-bed Ikoyi property — actively misleading, not just weak. Rather than ship a feature that confidently gives the wrong answer, it was excluded from the model.
+
+**A real insight, not a bug — `has_cof_o`:**
+
+Testing showed `has_cof_o` consistently *decreases* predicted price across every LGA and bedroom combination tested (−₦4.7M to −₦38M). Rather than remove it, further diagnosis revealed why: agents rarely mention Certificate of Occupancy in ultra-premium areas (Asokoro: 0% of listings mention it, Ikoyi: 2.9%), but mention it far more often in mid-tier areas (Ojodu: 16%, Ikeja: 9%) where buyers are more likely to want title reassurance. The correlation between LGA price and C of O mention rate is −0.213.
+
+This means `has_cof_o` isn't really measuring "does this property have legal title" — it's acting as a weak proxy for market tier, since agents in premium areas simply assume title is fine and don't bother stating it. The model isn't wrong; the feature is measuring something more subtle than its name suggests.
+
+**`is_gated`, by contrast, is a genuine premium signal** — consistently positive across all tests (+₦5M to +₦196M), with no meaningful price-tier correlation (−0.072), confirming it's a direct amenity effect rather than a marketing artifact.
+
+| Metric | V2 | V3 |
+|---|---|---|
+| MdAPE | 27.6% | 28.7% |
+| Training listings | 3,161 | 3,923 |
+| `is_furnished` coverage | 1.9% | 4.4% |
+| `is_serviced` | included (unreliable) | removed |
+
 
 ## About
 
